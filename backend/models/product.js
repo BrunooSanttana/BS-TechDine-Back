@@ -22,7 +22,12 @@ module.exports = (sequelize, DataTypes) => {
       },
       onUpdate: 'CASCADE',
       onDelete: 'SET NULL',
-    },    
+    },
+    stock: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0
+    }
   }, {
     tableName: 'products', // Nome da tabela no banco de dados
     timestamps: true,     // Não adicionar createdAt e updatedAt
@@ -35,6 +40,8 @@ module.exports = (sequelize, DataTypes) => {
       as: 'category',
     });
   };
+
+
 
   return Product;
 };
