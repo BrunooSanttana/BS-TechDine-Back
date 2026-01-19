@@ -1,49 +1,107 @@
 const express = require('express');
 const router = express.Router();
-const { Order, Product, OrderItem } = require('../models'); // adicione OrderItem se tiver
-const { Op } = require('sequelize');
+const { Order, Product, OrderItem, sequelize } = require('../models'); // ajuste se necessário
 
-// Endpoint para criar um pedido
 router.post('/', async (req, res) => {
   const { tableNumber, paymentMethod, items } = req.body;
 
+  if (!items || !items.length) {
+    return res.status(400).json({ error: 'Nenhum item enviado no pedido' });
+  }
+
+  // Inicia transação
+  const t = await sequelize.transaction();
+
   try {
-    // 1️⃣ Criar o pedido
+    // 1️⃣ Cria o pedido
+    const totalAmount = items.reduce((sum, item) => sum + item.total, 0);
     const order = await Order.create({
       tableNumber,
       paymentMethod,
-      totalAmount: items.reduce((sum, item) => sum + item.total, 0),
-    });
+      totalAmount
+    }, { transaction: t });
 
-    // 2️⃣ Para cada item, criar OrderItem e diminuir estoque
+    // 2️⃣ Processa cada item
     for (const item of items) {
-      const product = await Product.findByPk(item.productId);
-      if (!product) return res.status(404).json({ error: `Produto ${item.productId} não encontrado` });
+      const product = await Product.findByPk(item.productId, { transaction: t });
 
-      // verifica estoque
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ error: `Estoque insuficiente para ${product.name}` });
+      if (!product) {
+        throw new Error(`Produto com ID ${item.productId} não encontrado`);
       }
 
-      // diminui estoque
-      product.stock -= item.quantity;
-      await product.save();
+      if (product.stock < item.quantity) {
+        throw new Error(`Estoque insuficiente para ${product.name}`);
+      }
 
-      // cria o registro do item no pedido (opcional se você tiver OrderItem)
+      // Diminui estoque
+      product.stock -= item.quantity;
+      await product.save({ transaction: t });
+
+      // Cria OrderItem
       await OrderItem.create({
         orderId: order.id,
         productId: item.productId,
         quantity: item.quantity,
         total: item.total
-      });
+      }, { transaction: t });
     }
 
-    res.status(201).json({ message: 'Pedido criado e estoque atualizado', order });
+    // Commit da transação
+    await t.commit();
+
+    res.status(201).json({ message: 'Pedido criado com sucesso', order });
 
   } catch (error) {
-    console.error('Erro ao criar o pedido:', error);
-    res.status(500).json({ error: 'Erro ao criar o pedido' });
+    await t.rollback(); // desfaz tudo se der erro
+    console.error('Erro ao criar pedido:', error);
+    res.status(500).json({ error: error.message || 'Erro ao criar o pedido' });
   }
 });
+
+router.get('/', async (req, res) => {
+  try {
+    const orders = await Order.findAll({
+      include: [
+        {
+          model: OrderItem,
+          include: [Product],
+        },
+      ],
+      order: [['createdAt', 'DESC']],
+    });
+    res.json(orders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar pedidos' });
+  }
+});
+
+// Buscar uma comanda específica pelo ID
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const order = await Order.findByPk(id, {
+      include: [
+        {
+          model: OrderItem,
+          include: [Product],
+        },
+      ],
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: 'Comanda não encontrada' });
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar a comanda' });
+  }
+});
+
+
+
 
 module.exports = router;

@@ -20,6 +20,18 @@ db.Category = require('./category')(sequelize, Sequelize.DataTypes);
 db.Product = require('./product')(sequelize, Sequelize.DataTypes);
 db.Client = require('./client')(sequelize, Sequelize.DataTypes);
 db.Order = require('./order')(sequelize, Sequelize.DataTypes);
+db.OrderItem = require('./orderItem')(sequelize, Sequelize.DataTypes);
+
+
+
+// Um pedido tem muitos itens
+db.Order.hasMany(db.OrderItem, { foreignKey: 'orderId' });
+db.OrderItem.belongsTo(db.Order, { foreignKey: 'orderId' });
+
+// Cada item tem um produto
+db.Product.hasMany(db.OrderItem, { foreignKey: 'productId' });
+db.OrderItem.belongsTo(db.Product, { foreignKey: 'productId' });
+
 
 
 
