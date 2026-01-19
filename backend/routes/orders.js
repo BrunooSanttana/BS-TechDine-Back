@@ -112,7 +112,7 @@ router.post('/:orderId/items', async (req, res) => {
       // incrementa
       orderItem.quantity += quantity;
       orderItem.total += total;
-      if (note) orderItem.note = note; // opcionalmente atualiza a nota
+      if (note) orderItem.note = note;
       await orderItem.save({ transaction: t });
     } else {
       // cria novo item
@@ -158,8 +158,17 @@ router.delete('/:orderId/items/:itemId', async (req, res) => {
     }
 
     await orderItem.destroy({ transaction: t });
+
+    // se não restou nenhum item, apaga a comanda
+    const remainingItems = await OrderItem.count({ where: { orderId }, transaction: t });
+    if (remainingItems === 0) {
+      await Order.destroy({ where: { id: orderId }, transaction: t });
+      await t.commit();
+      return res.json({ message: 'Item removido e comanda encerrada', orderClosed: true });
+    }
+
     await t.commit();
-    res.json({ message: 'Item removido com sucesso' });
+    res.json({ message: 'Item removido', removedItemId: itemId });
   } catch (err) {
     await t.rollback();
     console.error(err);
@@ -170,34 +179,57 @@ router.delete('/:orderId/items/:itemId', async (req, res) => {
 // ---------------------
 // PATCH /orders/:orderId/items/:itemId/decrement - decrementar item
 // ---------------------
+// PATCH /orders/:orderId/items/:itemId/decrement
 router.patch('/:orderId/items/:itemId/decrement', async (req, res) => {
   const { orderId, itemId } = req.params;
 
   try {
-    const orderItem = await OrderItem.findOne({ where: { id: itemId, orderId }, include: [Product] });
-    if (!orderItem) return res.status(404).json({ error: 'Item não encontrado na comanda' });
+    const orderItem = await OrderItem.findOne({
+      where: { id: itemId, orderId },
+      include: [Product]
+    });
 
-    if (orderItem.quantity > 1) {
-      orderItem.quantity -= 1;
-      orderItem.total -= orderItem.Product.price;
-      await orderItem.save();
+    if (!orderItem) return res.status(404).json({ error: 'Item não encontrado' });
 
-      const product = await Product.findByPk(orderItem.productId);
-      if (product) {
+    // Começa a transação
+    const t = await sequelize.transaction();
+
+    try {
+      const product = await Product.findByPk(orderItem.productId, { transaction: t });
+
+      if (orderItem.quantity > 1) {
+        // decrementa 1 unidade
+        orderItem.quantity -= 1;
+        orderItem.total -= product.price;
+        await orderItem.save({ transaction: t });
+
+        // repor 1 no estoque
         product.stock += 1;
-        await product.save();
+        await product.save({ transaction: t });
+      } else {
+        // quantidade 1 -> remover item
+        product.stock += 1;
+        await product.save({ transaction: t });
+        await orderItem.destroy({ transaction: t });
       }
 
-      res.json({ message: 'Quantidade decrementada', orderItem });
-    } else {
-      const product = await Product.findByPk(orderItem.productId);
-      if (product) {
-        product.stock += 1;
-        await product.save();
+      // Verifica se a comanda ficou vazia
+      const remainingItems = await OrderItem.count({ where: { orderId }, transaction: t });
+      let orderClosed = false;
+
+      if (remainingItems === 0) {
+        await Order.destroy({ where: { id: orderId }, transaction: t });
+        orderClosed = true;
       }
-      await orderItem.destroy();
-      res.json({ message: 'Item removido', removedItemId: itemId });
+
+      await t.commit();
+      res.json({ message: 'Item decrementado com sucesso', orderClosed });
+
+    } catch (err) {
+      await t.rollback();
+      throw err;
     }
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao decrementar item' });
