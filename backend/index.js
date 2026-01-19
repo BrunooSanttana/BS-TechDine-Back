@@ -126,38 +126,6 @@ app.get('/faturamento', async (req, res) => {
   }
 });
 
-// ================= ESTOQUE =================
-
-// Listar estoque
-app.get('/stock', async (req, res) => {
-  try {
-    const products = await Product.findAll({
-      attributes: ['id', 'name', 'stock']
-    });
-    res.json(products);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao buscar estoque' });
-  }
-});
-
-// Atualizar estoque manualmente
-app.put('/stock/:id', async (req, res) => {
-  try {
-    const { stock } = req.body;
-
-    await Product.update(
-      { stock },
-      { where: { id: req.params.id } }
-    );
-
-    res.json({ message: 'Estoque atualizado' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao atualizar estoque' });
-  }
-});
-
 
 
 // Adicione as novas rotas aqui

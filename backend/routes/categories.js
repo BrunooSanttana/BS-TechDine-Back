@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { Category, Product  } = require('../models');
+const { Op } = require('sequelize');
+
 
 // Rota para buscar todas as categorias
 router.get('/', async (req, res) => {
@@ -34,6 +36,22 @@ router.get('/:categoryId/products', async (req, res) => {
   } catch (error) {
     console.error('Erro ao buscar produtos:', error);
     res.status(500).json({ error: 'Erro ao buscar produtos' });
+  }
+});
+// Rota para buscar categorias (VENDAS)
+router.get('/', async (req, res) => {
+  try {
+    const categories = await Category.findAll({
+      where: {
+        name: { [Op.ne]: 'Matéria-Prima' }
+      },
+      order: [['name', 'ASC']]
+    });
+
+    res.json(categories);
+  } catch (error) {
+    console.error('Erro ao buscar categorias:', error);
+    res.status(500).json({ error: 'Erro ao buscar categorias' });
   }
 });
 
