@@ -101,7 +101,87 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// DELETE /orders/:orderId/items/:itemId
+router.delete('/:orderId/items/:itemId', async (req, res) => {
+  const { orderId, itemId } = req.params;
 
+  // Inicia transação para segurança
+  const t = await sequelize.transaction();
+
+  try {
+    // Busca o OrderItem específico dentro do pedido
+    const orderItem = await OrderItem.findOne({
+      where: { id: itemId, orderId }, // garante que só esse item seja deletado
+      transaction: t,
+    });
+
+    if (!orderItem) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Item não encontrado' });
+    }
+
+    // Restaura o estoque do produto
+    const product = await Product.findByPk(orderItem.productId, { transaction: t });
+    if (product) {
+      product.stock += orderItem.quantity;
+      await product.save({ transaction: t });
+    }
+
+    // Deleta apenas este item
+    await orderItem.destroy({ transaction: t });
+
+    await t.commit();
+    res.json({ message: 'Item removido com sucesso' });
+  } catch (error) {
+    await t.rollback();
+    console.error('Erro ao remover item:', error);
+    res.status(500).json({ error: 'Erro ao remover item' });
+  }
+});
+
+// PATCH /orders/:orderId/items/:itemId/decrement
+router.patch('/:orderId/items/:itemId/decrement', async (req, res) => {
+  const { orderId, itemId } = req.params;
+
+  try {
+    const orderItem = await OrderItem.findOne({
+      where: { id: itemId, orderId: orderId },
+      include: [Product]
+    });
+
+    if (!orderItem) {
+      return res.status(404).json({ error: 'Item não encontrado na comanda' });
+    }
+
+    // Se tiver mais de 1 unidade, decrementa
+    if (orderItem.quantity > 1) {
+      orderItem.quantity -= 1;
+      orderItem.total -= orderItem.Product.price; // ajusta o total
+      await orderItem.save();
+
+      // Repor estoque
+      const product = await Product.findByPk(orderItem.productId);
+      if (product) {
+        product.stock += 1;
+        await product.save();
+      }
+
+      res.json({ message: 'Quantidade decrementada', orderItem });
+    } else {
+      // Se for 1 unidade, remove o item
+      const product = await Product.findByPk(orderItem.productId);
+      if (product) {
+        product.stock += 1;
+        await product.save();
+      }
+      await orderItem.destroy();
+      res.json({ message: 'Item removido', removedItemId: itemId });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao decrementar item' });
+  }
+});
 
 
 module.exports = router;
