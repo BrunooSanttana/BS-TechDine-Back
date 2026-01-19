@@ -236,4 +236,44 @@ router.patch('/:orderId/items/:itemId/decrement', async (req, res) => {
   }
 });
 
+// Fechar comanda
+router.post('/:orderId/close', async (req, res) => {
+  const { orderId } = req.params;
+  const { paymentMethod } = req.body;
+
+  if (!paymentMethod) {
+    return res.status(400).json({ error: 'Método de pagamento é obrigatório' });
+  }
+
+  // Inicia transação
+  const t = await sequelize.transaction();
+
+  try {
+    const order = await Order.findByPk(orderId, { include: [OrderItem], transaction: t });
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Comanda não encontrada' });
+    }
+
+    if (!order.OrderItems || order.OrderItems.length === 0) {
+      await order.destroy({ transaction: t });
+      await t.commit();
+      return res.json({ message: 'Comanda já estava vazia e foi removida', orderClosed: true });
+    }
+
+  
+    // Se quiser remover após fechamento:
+    await order.destroy({ transaction: t });
+
+    await t.commit();
+    return res.json({ message: 'Comanda fechada com sucesso', orderClosed: true });
+
+  } catch (err) {
+    await t.rollback();
+    console.error('Erro ao fechar comanda:', err);
+    return res.status(500).json({ error: 'Erro ao fechar comanda' });
+  }
+});
+
 module.exports = router;
